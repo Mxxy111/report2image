@@ -25,8 +25,8 @@ pip install -r requirements.txt
 # === 关键配置：请根据您的 Chat 接口文档填写 ===
 NANOBANANA_API_KEY=sk-your-api-key-here
 # 注意：这里使用 Chat 接口地址
-NANOBANANA_API_URL=https://api.sydney-ai.com/v1/chat/completions
-NANOBANANA_MODEL=gemini-2.5-flash-image
+NANOBANANA_API_URL=
+NANOBANANA_MODEL=
 
 # === (可选) 参考图 URL ===
 # 如果您希望所有生成任务都参考同一张底图，请在此填入 URL
@@ -248,3 +248,4 @@ A: 可能是模型名称 (`model`) 不正确，或者 API 不支持 `size` 参�
 
 **Q: 图片无法下载**
 A: 请检查 API 返回的 URL 是否可以公开访问。有些内网 API 返回的 URL 无法在外部下载。
+
