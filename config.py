@@ -47,12 +47,12 @@ class AppConfig:
     api_mode: str = os.getenv("NANOBANANA_API_MODE", "chat")
     
     # API 完整 URL
-    # Chat 示例: https://api.sydney-ai.com/v1/chat/completions
-    # Image 示例: https://api.sydney-ai.com/v1/images/generations
-    api_url: str = os.getenv("NANOBANANA_API_URL", "https://api.sydney-ai.com/v1/chat/completions")
+    # Chat 示例: https://api.com/v1/chat/completions
+    # Image 示例: https://api.com/v1/images/generations
+    api_url: str = os.getenv("NANOBANANA_API_URL", "")
     
     # 模型名称
-    model: str = os.getenv("NANOBANANA_MODEL", "gemini-2.5-flash-image")
+    model: str = os.getenv("NANOBANANA_MODEL", "")
     
     # ===========================================================
     
@@ -94,3 +94,4 @@ class AppConfig:
         config.rate_limit.timeout = float(os.getenv("TIMEOUT", config.rate_limit.timeout))
         
         return config
+
