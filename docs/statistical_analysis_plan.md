@@ -110,7 +110,7 @@ python scripts/analysis/run_statistical_analysis.py `
   --output-dir data/analysis/results
 ```
 
-脚本不包含模拟数据回退。任何完整性或冻结条件不满足时均退出并返回错误。主要产物为：
+脚本不包含模拟数据回退。任何完整性或冻结条件不满足时均退出并返回错误。输出文件包括：
 
 - `analysis_results.json`：主要结论及输入文件 SHA-256；
 - `pass_rates.csv`：总体和癌种分层通过率及 Wilson 95% CI；
