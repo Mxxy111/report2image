@@ -1,251 +1,355 @@
-# NanoBanana PET-CT Visualization Project
+# PET/CT 患者友好可视化研究系统
 
-本项目用于批量调用 NanoBanana API（或兼容的生图 API），根据 CSV 中的医学报告内容生成 PET-CT 可视化图像。
+将泌尿系统肿瘤 PET/CT 报告转换为患者容易理解的医学信息图，并支持 AI 图片审查、反馈修订、医生人工评价、患者理解度出题、可审计批量实验和真实数据统计分析。
 
+当前项目仍处于开发和研究方案迭代阶段，尚未提交或完成正式 300 例研究。每个实验批次可独立锁定当时的数据、模型、提示词和参数，因此项目可以继续修改并增加新的比较。
 
-## 1. 快速开始
+## 该从哪里开始
 
-### 安装依赖
-```powershell
-pip install -r requirements.txt
-```
+按当前任务选择路径：
 
-### 准备数据
-准备一个 CSV 或 Excel 文件（例如 `data.csv`），需包含以下列：
-- **ID 列**：如 `门诊号/住院号`、`ID`
-- **文本列**：如 `检查所见`、`report`
+| 任务 | 建议阅读顺序 | 主要命令 |
+|---|---|---|
+| 门诊单例生成图片 | 快速安装 → API 与模型配置 → 门诊网页 | `python run_web.py` |
+| 回顾性 300 例配对实验 | 快速安装 → API 与模型配置 → 回顾性配对批量实验 → 导出统计数据 → 统计分析 | `python scripts/experiments/run_paired_experiment.py ...` |
+| 只做代码或文档修改 | 快速安装 → 运行测试 → 项目结构 | `node --check webapp/static/app.js` 和 `python -B -m pytest ...` |
 
-**提示**：本项目已支持 **智能编码识别**，您可以直接使用 Windows 下生成的中文 CSV（GBK 编码）或 UTF-8 文件，无需手动转换格式。
+正式批次前先使用开发实验 ID 完成 `--prepare-only` 和少量 `--max-items` 试跑。任何有意更换模型、提示词、参考图、参数、代码或数据的情况，都使用新的 `experiment-id`，不要在旧实验 ID 中继续混跑。
 
-### 配置 API
-在项目根目录创建 `.env` 文件（推荐），或者直接在 `config.py` 中修改。
+## 当前研究
 
-**`.env` 文件示例：**
-```env
-# === 关键配置：请根据您的 Chat 接口文档填写 ===
-NANOBANANA_API_KEY=sk-your-api-key-here
-# 注意：这里使用 Chat 接口地址
-NANOBANANA_API_URL=
-NANOBANANA_MODEL=
+当前内置回顾性研究为同病例配对设计：
 
-# === (可选) 参考图 URL ===
-# 如果您希望所有生成任务都参考同一张底图，请在此填入 URL
-# REFERENCE_IMAGE_URL=https://filesystem.site/cdn/.../image.png
+- 肾癌、前列腺癌、尿路上皮癌各 100 例；
+- 每例运行 `UNGATED` 和 `GATED`；
+- `UNGATED`：只生成一次；
+- `GATED`：视觉模型结合原报告审查图片，失败时反馈修图；
+- 医生整图 `PASS/FAIL` 是金标准；
+- 主要终点：无门控首次图片医生通过率；
+- 配对比较：双侧精确 McNemar 检验。
 
-# === 性能配置 ===
-RPM=60              # 每分钟最大请求数 (根据您的套餐限制)
-CONCURRENCY=5       # 最大并发数 (同时进行的请求数)
-```
+旧版“2100→1500、三阶段评价”已不再作为当前主要方案。统一后的工作草案见：
 
-## 2. 工作模式与配置说明
+- [课题计划书](docs/research_proposal.md)
+- [统计分析计划（SAP）](docs/statistical_analysis_plan.md)
+- [人工评价方案](docs/image_evaluation_plan.md)
+- [项目计划与状态](docs/project_plan_and_status.md)
+- [系统技术架构与论文写作说明](docs/technical_architecture_for_manuscript.md)
 
-本项目支持 **Chat 模式** 和 **Image 模式** 两种接口协议，并各自支持“文生图”和“垫图生图”。请根据您的 API 文档选择正确的模式。
+SAP 是 Statistical Analysis Plan，即统计分析计划。它在查看正式结果前预先规定终点、分析人群、统计方法和缺失数据规则。
 
-### 模式选择指南
-- 如果您的 API 地址以 `/v1/chat/completions` 结尾，请选择 **Chat 模式**（默认）。
-- 如果您的 API 地址以 `/v1/images/generations` 结尾，请选择 **Image 模式**。
+## 快速安装
 
----
+要求 Python `3.11–3.13`。
 
-### 模式 1：Chat 接口模式 (默认)
-**接口地址**：`.../v1/chat/completions`
-**特点**：使用 `messages` 数组通信。
-
-- **A. 纯文本生图**：
-  - **配置**：不设置 `REFERENCE_IMAGE_URL`。
-  - **逻辑**：发送 `messages: [{"content": "prompt"}]`。
-
-- **B. 垫图生图 (多模态)**：
-  - **配置**：设置 `REFERENCE_IMAGE_URL`。
-  - **逻辑**：发送包含 `image_url` 对象的多模态消息。
-
----
-
-### 模式 2：Image 接口模式 (OpenAI 变体)
-**接口地址**：`.../v1/images/generations`
-**特点**：使用 `prompt`, `size` 等扁平字段。
-
-- **A. 纯文本生图**：
-  - **配置**：`api_mode="image"`，不设置 `REFERENCE_IMAGE_URL`。
-  - **逻辑**：发送 `{"prompt": "prompt...", "size": "1024x1024"}`。
-
-- **B. 垫图生图 (URL 拼接)**：
-  - **配置**：`api_mode="image"`，设置 `REFERENCE_IMAGE_URL`。
-  - **逻辑**：发送 `{"prompt": "prompt...\nhttps://image.url", "size": "..."}`。脚本会自动将图片 URL 拼接到 Prompt 后。
-
-## 3. 详细参数列表
-
-所有参数均支持通过 **命令行** 或 **环境变量 (.env)** 设置。
-
-| 参数名 | 命令行参数 | 环境变量 | 说明 | 默认值 |
-|--------|------------|----------|------|--------|
-| **API 密钥** | `--api-key` | `NANOBANANA_API_KEY` | 必需。API 认证密钥。 | - |
-| **API 模式** | `--api-mode` | `NANOBANANA_API_MODE` | `chat` 或 `image` | chat |
-| **API 地址** | `--api-url` | `NANOBANANA_API_URL` | 完整 URL | - |
-| **模型名称** | `--model` | `NANOBANANA_MODEL` | 如 `gemini-2.5-flash-image` | - |
-| **参考图 URL** | `--reference-image` | `REFERENCE_IMAGE_URL` | 可选。支持 **HTTP链接** 或 **本地文件路径** (自动转 Base64)。 | None |
-| **图片尺寸** | `--size` | `NANOBANANA_SIZE` | 仅 Image 模式有效，如 `1024x1024` | 1024x1024 |
-| **RPM 限制** | `--rpm` | `RPM` | 每分钟最大请求数。 | 60 |
-| **并发数** | `--concurrency` | `CONCURRENCY` | 同时发起的请求数。 | 5 |
-| **超时时间** | `--timeout` | `TIMEOUT` | 单次 API 请求的超时时间（秒）。 | 300 |
-| **测试限制** | `--limit` | - | **新增**：仅处理前 N 条数据（方便测试）。 | - |
-| **历史文件** | `--history-file` | - | **正式模式核心**：指定一个 CSV 路径记录已处理任务。启用后会自动跳过已做过的任务，并统一图片存储路径。 | None |
-| **同步校验** | `--sync` | - | **新增**：运行前检查历史文件与图片文件夹的一致性，自动清理无效记录。 | False |
-| **历史合并** | `--merge-history` | - | **新增**：检测到“前片/对比”关键词时，自动合并同一患者的历史报告。 | False |
-| **随机抽样** | `--random-sample` | - | **新增**：唯一性随机抽样。每个患者 ID 只保留 1 条记录，然后随机打乱。常与 `--limit` 配合使用。 | False |
-| **报告文本列** | `--text-cols` | - | **新增**：指定 CSV 中作为报告内容的列名，多列用逗号分隔。 | 自动检测 |
-| **ID 列** | `--id-col` | - | **新增**：指定 CSV 中的唯一 ID 列名。 | 自动检测 |
-
-## 4. 输出结果说明
-运行完成后，默认会在 `outputs/` 目录下生成一个带时间戳的文件夹。
-
-**如果指定了 `--history-file`**（正式模式）：
-```
-outputs/
-└── {history_filename}_images/  # 与历史记录文件同名的图片文件夹
-    ├── 1001_abcdef.png
-    └── ...
-```
-
-**默认模式**（测试/单次运行）：
-```
-outputs/
-└── batch_20251203_160000/
-    ├── images/                 # 存放所有生成的图片
-    │   ├── 1001_abcdef.png     # 命名格式：{ID}_{Hash前6位}.png
-    │   └── 1002_123456.png
-    ├── call_logs/              # (新增) API调用详细日志
-    │   └── api_calls_xxx.jsonl # 包含完整Prompt、Token消耗等
-    └── results_summary.csv     # 结果汇总表
-```
-
-**`results_summary.csv` 包含以下关键列：**
-*   `id`: 数据的唯一标识。
-*   `original_text`: **原文内容**（用于与生成的图片进行对照）。
-*   `local_image_path`: 图片在本地的保存路径。
-*   `image_url`: 原始下载链接。
-*   `elapsed_time`: 生成耗时。
-
-## 5. 运行命令示例
-
-### 场景 1：基础文生图 (快速测试前 5 条)
-```powershell
-python cli.py "data.csv" --limit 5 --api-url "..."
-```
-
-### 场景 2：使用本地图片垫图 (推荐)
-为了获得风格高度一致的“医学简笔画”，**强烈建议**始终提供一张标准的参考图。脚本会自动将其转换为 Base64。
-```powershell
-python cli.py "data.csv" \
-  --api-url "..." \
-  --reference-image "C:\images\standard_template.png"
-```
-
-### 场景 3：进阶用法 - 历史合并与随机抽样
-适用于复查患者较多的数据集。脚本会自动识别“同前”、“较前”等描述，将历史报告合并给 AI；并随机抽取 50 个不同患者进行测试。
-```powershell
-python cli.py "data.csv" \
-  --limit 50 \
-  --merge-history \
-  --random-sample \
-  --text-cols "检查结论" \
-  --api-url "..." \
-  --reference-image "C:\images\ref.png"
-```
-
-### 场景 4：自定义报告内容列 (拼接多列)
-假设您的 CSV 中有“检查所见”和“诊断结论”两列，您希望将它们合并作为提示词的输入：
-```powershell
-python cli.py "data.csv" \
-  --text-cols "检查所见,诊断结论" \
-  --api-url "..."
-```
-
-### 场景 3：使用 Image 接口 (垫图模式)
-```powershell
-python cli.py "data.csv" \
-  --api-mode "image" \
-  --api-url "https://api.sydney-ai.com/v1/images/generations" \
-  --size "1024x1024" \
-  --reference-image "https://filesystem.site/cdn/demo.png"
-```
-
-## 6. 增量处理与正式运行 (Formal Mode)
-
-当您需要处理大规模数据（如数千条记录），并且需要分批次运行、避免重复处理时，请使用 **历史文件 (`--history-file`)**。
-
-### 工作原理
-1. 脚本读取指定的 History CSV 文件（如 `processed_history.csv`）。
-2. 在处理新数据时，会自动跳过 History 中已存在的记录（根据 ID + 内容哈希判断）。
-3. 生成的图片将统一保存在 `{history_filename}_images` 文件夹中，而不是分散在每次运行的临时文件夹里。
-4. 任务成功后，会自动将记录追加到 History CSV 中。
-
-### 命令示例
-```powershell
-python cli.py "new_patient_data.csv" \
-  --history-file "processed_history.csv" \
-  --api-url "..." \
-  --concurrency 10
-```
-**注意**：首次运行时，脚本会自动创建空的 History CSV。
-
-## 7. 实用工具 (Tools)
-
-### 批量删除图片 (`delete_images.py`)
-**场景**：当您有一批特定的 ID（例如在 Excel 中筛选出的“不合格样本”），需要从图片文件夹中批量删除对应的图片时使用。
+Windows PowerShell：
 
 ```powershell
-python tools/delete_images.py "bad_cases.csv" "outputs/images"
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements-dev.txt
+Copy-Item .env.example .env
 ```
 
-**常用参数**：
-- `--dry-run`：**试运行**。仅打印要删除的文件列表，不执行删除。强烈建议首次运行使用。
-- `--no-header`：如果您的 CSV 文件没有表头（第一行就是数据），请加上此参数。
-- `--id-col`：指定 ID 列名（默认自动识别包含 "id"/"号" 的列）。
-
-### 8. 维护与修复 (Sync/Update)
-
-此功能用于保持 **CSV 记录** 与 **实际图片文件夹** 的高度一致。
-通常在以下情况使用：
-1.  **清理无效记录**：您手动删除了某些不满意的图片，希望 CSV 中对应的“已完成”记录也自动删除，以便重新生成。
-2.  **重建/恢复记录**：您的 CSV 记录意外丢失或损坏，但图片还在，希望根据文件名重新找回 CSV 记录。
-
-#### 场景 A：自动清理无效记录
-这是最常用的功能。脚本会检查 History CSV，如果发现某条记录对应的图片不存在，就会从 CSV 中删除该行。
-
-**方法 1：在 CLI 中直接启用**
-```powershell
-python cli.py "data.csv" --history-file "processed.csv" --sync
-```
-
-**方法 2：使用独立工具**
-```powershell
-python tools/sync_history.py \
-  --history "processed.csv" \
-  --images "outputs/processed_images"
-```
-
-#### 场景 B：根据图片恢复 CSV (反向更新)
-如果您有图片文件，但 CSV 中缺失了对应的记录（例如手动复制了图片进来），可以使用 `--source` 参数从原始数据表中找回这些信息并补全到 History CSV 中。
+运行测试：
 
 ```powershell
-python tools/sync_history.py \
-  --history "processed.csv" \
-  --images "outputs/processed_images" \
-  --source "original_data.csv"
+New-Item -ItemType Directory -Force .tmp | Out-Null
+$env:TEMP=(Resolve-Path .tmp).Path
+$env:TMP=$env:TEMP
+$base=".tmp\pytest-$((Get-Date).ToString('yyyyMMddHHmmss'))"
+python -B -m pytest --basetemp $base -p no:cacheprovider -q
 ```
-*   `--history`: 待修复的进度文件。
-*   `--images`: 现有的图片文件夹。
-*   `--source`: 原始完整数据源（用于查找 ID 对应的文本信息）。
 
-## 9. 常见问题
+Windows 下固定复用 `.tmp\pytest` 偶尔会因旧进程或安全软件占用而清理失败；上面的命令每次使用新的临时目录，更适合日常验证。
 
-**Q: 报错 `API Error 404: Not Found`**
-A: 通常是 `NANOBANANA_API_URL` 填写错误。请检查是否多写或少写了 `/v1/...` 路径后缀。
+## 门诊网页
 
-**Q: 报错 `API Error 400: Invalid Parameter`**
-A: 可能是模型名称 (`model`) 不正确，或者 API 不支持 `size` 参数。请检查 `client.py` 中的 `payload` 字典。
+启动：
 
-**Q: 图片无法下载**
-A: 请检查 API 返回的 URL 是否可以公开访问。有些内网 API 返回的 URL 无法在外部下载。
+```powershell
+python run_web.py
+```
 
+Windows can also start the local 8001 service by double-clicking:
+
+```text
+NanoBananaPETCT.exe
+```
+
+或指定端口：
+
+```powershell
+.\scripts\start_web.ps1 -Port 8001
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:8000
+http://127.0.0.1:8001
+```
+
+网页支持：
+
+1. 输入病例号和 PET/CT 报告；
+2. 选择 pipeline、provider、模型和图像参数；
+3. 上传参考样式图；
+4. 开启或关闭 AI 质量门控；
+5. 生成 2–3 道患者理解度题目；
+6. 查看图片和每轮门控结果；
+7. 保存医生 `PASS/FAIL`、错误类型、评价者和备注；
+8. 打印患者友好报告；
+9. 查看历史生成记录，并重新打开既往运行。
+
+网页运行结果按以下结构保存：
+
+```text
+runtime/cases/<YYYY-MM-DD>/<病例号>/<run_id>/
+├─ attempt_1.png
+├─ attempt_2.png
+├─ reference.png
+└─ manifest.json
+```
+
+病例号中的 Windows 非法路径字符会替换为 `_`。最内层保留 `run_id`，同一天重复生成同一病例时不会覆盖。
+
+## API 与模型配置
+
+有三种配置方式：
+
+### 网页配置
+
+点击网页右上角“API 设置”，填写 API Key、Base URL、API 类型、超时和默认模型。配置保存在：
+
+```text
+settings/local_providers.json
+```
+
+该文件默认不提交 Git。
+
+门诊网页默认会同时尝试生图、AI 审查和患者理解度出题，因此默认需要生图、审查和出题三个任务的配置。若只想快速生成图片，可以在网页中关闭“生成理解度题目”；批量图片实验本身只要求生图和审查配置可用。
+
+### `.env`
+
+三任务独立 API：
+
+```dotenv
+PETCT_IMAGE_API_KEY=
+PETCT_IMAGE_BASE_URL=
+PETCT_REVIEW_API_KEY=
+PETCT_REVIEW_BASE_URL=
+PETCT_QUESTION_API_KEY=
+PETCT_QUESTION_BASE_URL=
+```
+
+OpenAI 单账号：
+
+```dotenv
+OPENAI_API_KEY=
+```
+
+统一兼容网关：
+
+```dotenv
+CUSTOM_OPENAI_API_KEY=
+CUSTOM_OPENAI_BASE_URL=
+```
+
+### 自定义配置文件
+
+批量命令可显式指定：
+
+```powershell
+--provider-config settings/providers.json `
+--local-provider-config D:\private\petct-providers.json
+```
+
+不要把 API Key 直接写在命令行参数中。
+
+项目内置 pipeline：
+
+- `split_default`：生图、审查、出题使用独立 provider；
+- `openai_single_key`：共用 OpenAI Key；
+- `custom_gateway_all`：共用 OpenAI-compatible 网关。
+
+## 回顾性配对批量实验
+
+完整说明见 [回顾性配对批量实验使用手册](docs/retrospective_batch_manual.md)。
+
+推荐操作顺序：
+
+1. 用 `--prepare-only` 检查队列和配置，不调用模型 API；
+2. 用 `--max-items 2` 先跑一个病例的一对策略；
+3. 人工查看生成图片、`manifest.json` 和 `events.jsonl`；
+4. 如果要调整模型、提示词、参考图或代码，换新的 `experiment-id` 后重新从第 1 步开始；
+5. 确认可用后，去掉 `--max-items` 继续完整批次。
+
+查看参数：
+
+```powershell
+python scripts/experiments/run_paired_experiment.py --help
+```
+
+### 只检查队列和配置
+
+不会调用模型 API：
+
+```powershell
+python scripts/experiments/run_paired_experiment.py `
+  --experiment-id dev-gptimage2-r1 `
+  --seed 20260621 `
+  --pipeline split_default `
+  --max-revisions 1 `
+  --prepare-only
+```
+
+默认验证三癌种各 100 例，并生成 300 例、600 个配对工作项。
+
+### 小规模试跑
+
+```powershell
+python scripts/experiments/run_paired_experiment.py `
+  --experiment-id dev-gptimage2-r1 `
+  --seed 20260621 `
+  --pipeline split_default `
+  --image-model gpt-image-2 `
+  --review-model gpt-5.4 `
+  --image-size 1536x1024 `
+  --image-quality high `
+  --max-revisions 1 `
+  --max-items 2
+```
+
+### 使用参考图
+
+```powershell
+--reference-image D:\references\petct-style.png
+```
+
+### 断点续跑
+
+重新执行完全相同的命令：
+
+- 已完成工作项自动跳过；
+- 失败项可重新运行；
+- 已保存 manifest 但尚未写入审计事件的结果会自动恢复；
+- 不会覆盖已完成图片。
+
+### 修改版本或增加比较
+
+实验锁只约束同一个 `experiment-id`。模型、提示词、参考图、参数、代码或数据有意变化时，换一个新的实验 ID：
+
+```text
+dev-model-a-r1
+dev-model-a-r2
+dev-model-b-r1
+dev-no-reference-r1
+```
+
+这样可以继续开发并保留不同版本用于后续比较。若增加第三种正式策略，需要同时扩展工作项定义、导出、SAP 和统计方法。
+
+## 批量实验记录
+
+```text
+runtime/experiments/<experiment-id>/
+├─ experiment_lock.json
+├─ work_items.csv
+└─ events.jsonl
+```
+
+- `experiment_lock.json`：队列、数据哈希、模型、参数、提示词、SAP/评价方案、参考图、随机种子和代码版本快照；
+- `work_items.csv`：全部计划运行及固定顺序；
+- `events.jsonl`：追加式开始、完成、失败和恢复记录。
+
+每次生成的 `manifest.json` 还记录：
+
+- 实验 ID、工作项 ID、癌种和配对键；
+- provider ID、API 类型、Base URL、模型和超时；
+- 生图参数及最大修订次数；
+- 提示词版本和 SHA-256；
+- 参考图和代码源树 SHA-256；
+- Git commit/dirty 状态；
+- 随机种子及 `providerSeedApplied`。
+
+当前图像 API 不支持 seed，所以随机种子只控制病例与策略执行顺序，不能保证图像像素级复现。
+
+## 导出统计数据
+
+```powershell
+python scripts/experiments/export_paired_results.py `
+  --experiment-id dev-gptimage2-r1 `
+  --output data/analysis/paired_runs.csv
+```
+
+导出表不包含姓名或报告全文。正式 300 例批次应有 600 行。
+
+## 统计分析
+
+```powershell
+python scripts/analysis/run_statistical_analysis.py `
+  --input data/analysis/paired_runs.csv `
+  --output-dir data/analysis/results
+```
+
+统计脚本没有模拟数据回退。以下任一情况都会报错退出：
+
+- 输入文件不存在；
+- 不是 600 个已完成运行；
+- 病例没有严格配对；
+- 三癌种不是各 100 例；
+- 缺少医生 `PASS/FAIL`；
+- 冻结的模型、参数、提示词、代码哈希或 seed 不一致。
+
+输出：
+
+```text
+data/analysis/results/
+├─ analysis_results.json
+├─ pass_rates.csv
+├─ mcnemar.csv
+└─ error_types.csv
+```
+
+## 旧批量生图入口
+
+早期历史批量生图仍可使用：
+
+```powershell
+python cli.py "data/raw/08-24年肾癌患者核医学报告.csv" --limit 5
+```
+
+该入口使用旧的 `NANOBANANA_*` 配置，不具备新版配对实验的实验锁、审计日志和严格统计导出。正式配对研究应使用 `scripts/experiments/run_paired_experiment.py`。
+
+## 项目结构
+
+```text
+petct/                         核心领域逻辑、provider、生成、评价和实验契约
+webapp/                        FastAPI 门诊网页
+settings/                      provider 与 pipeline 配置
+scripts/experiments/           配对批量运行和统计导出
+scripts/analysis/              严格真实数据统计分析
+scripts/datasets/              历史抽样与数据集构建
+scripts/questions/             理解度题目工具
+data/raw/                      原始报告
+data/derived/evaluation_dataset/ 300 例当前评测队列
+data/analysis/                 统计输入和结果
+runtime/cases/                 单次运行图片与 manifest
+runtime/experiments/           实验锁、工作项和审计日志
+docs/                          SAP、评价方案、使用手册和决策记录
+archive/                       历史入口和旧测试
+```
+
+## 数据与安全
+
+原始 CSV 和运行 manifest 可能含病例号、姓名或报告全文。真实门诊使用前仍需完善：
+
+- 患者标识脱敏；
+- 访问控制；
+- 审计与备份；
+- 数据保存期限；
+- 伦理审批和知情同意；
+- 多评价者原始评分与仲裁记录。
+
+不要提交 `.env`、`settings/local_providers.json`、`runtime/` 或 `outputs/`。

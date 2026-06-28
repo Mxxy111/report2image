@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "defaultPipelineId": "split_default",
+  "providers": [
+    {
+      "id": "image_api",
+      "label": "生图 API",
+      "apiStyle": "openai_compatible",
+      "apiKeyEnv": "PETCT_IMAGE_API_KEY",
+      "baseUrlEnv": "PETCT_IMAGE_BASE_URL",
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "review_api",
+      "label": "审查 API",
+      "apiStyle": "openai_compatible",
+      "apiKeyEnv": "PETCT_REVIEW_API_KEY",
+      "baseUrlEnv": "PETCT_REVIEW_BASE_URL",
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "question_api",
+      "label": "出题 API",
+      "apiStyle": "openai_compatible",
+      "apiKeyEnv": "PETCT_QUESTION_API_KEY",
+      "baseUrlEnv": "PETCT_QUESTION_BASE_URL",
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "openai_shared",
+      "label": "OpenAI 单账号",
+      "apiStyle": "openai",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "custom_gateway",
+      "label": "自定义兼容网关",
+      "apiStyle": "openai_compatible",
+      "apiKeyEnv": "CUSTOM_OPENAI_API_KEY",
+      "baseUrlEnv": "CUSTOM_OPENAI_BASE_URL",
+      "timeoutSeconds": 300
+    }
+  ],
+  "pipelines": [
+    {
+      "id": "split_default",
+      "label": "独立 API（生图/审查/出题）",
+      "image": {
+        "providerId": "image_api",
+        "model": "gpt-image-2",
+        "options": {
+          "size": "1536x1024",
+          "quality": "medium"
+        }
+      },
+      "review": {
+        "providerId": "review_api",
+        "model": "gpt-5.4"
+      },
+      "questions": {
+        "providerId": "question_api",
+        "model": "gpt-5.4"
+      },
+      "maxRevisions": 1
+    },
+    {
+      "id": "openai_single_key",
+      "label": "OpenAI 单账号",
+      "image": {
+        "providerId": "openai_shared",
+        "model": "gpt-image-2",
+        "options": {
+          "size": "1536x1024",
+          "quality": "medium"
+        }
+      },
+      "review": {
+        "providerId": "openai_shared",
+        "model": "gpt-5.4"
+      },
+      "questions": {
+        "providerId": "openai_shared",
+        "model": "gpt-5.4"
+      },
+      "maxRevisions": 1
+    },
+    {
+      "id": "custom_gateway_all",
+      "label": "自定义兼容网关",
+      "image": {
+        "providerId": "custom_gateway",
+        "model": "your-image-model",
+        "options": {
+          "size": "1024x1024",
+          "quality": "medium"
+        }
+      },
+      "review": {
+        "providerId": "custom_gateway",
+        "model": "your-vision-model"
+      },
+      "questions": {
+        "providerId": "custom_gateway",
+        "model": "your-text-model"
+      },
+      "maxRevisions": 1
+    }
+  ]
+}

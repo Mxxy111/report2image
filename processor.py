@@ -14,6 +14,13 @@ from typing import List, Optional, Dict, Any, Tuple
 
 from config import AppConfig
 from client import NanoBananaClient
+from petct.data import (
+    build_record_key,
+    compose_report_text,
+    detect_id_column,
+    detect_text_columns,
+    read_table,
+)
 from prompts import PET_CT_VISUALIZATION_PROMPT, PET_CT_IMG2IMG_PROMPT
 
 # Setup logging
@@ -455,6 +462,87 @@ def apply_random_sampling(records: List[Record], limit: int) -> List[Record]:
     
     return sampled_records
 
+def read_records_normalized(
+    path: Path,
+    config: AppConfig,
+    limit: Optional[int] = None,
+) -> Tuple[List[Record], str]:
+    """Read records using the shared, strict column-detection rules."""
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    df = read_table(path, config.csv.default_encoding)
+    columns = list(df.columns)
+    text_columns = detect_text_columns(
+        columns,
+        requested=config.csv.user_text_cols or None,
+        candidates=config.csv.text_column_candidates,
+    )
+    id_col = detect_id_column(columns, candidates=config.csv.id_column_candidates)
+
+    records = []
+    for _, row in df.iterrows():
+        row_data = row.to_dict()
+        text = compose_report_text(row_data, text_columns, config.csv.max_chars)
+        if not text:
+            continue
+
+        id_value = str(row_data.get(id_col, "")).strip() or f"row_{len(records)}"
+        task_hash = hashlib.md5(f"{id_value}_{text}".encode("utf-8")).hexdigest()
+        records.append(
+            Record(
+                id_value=id_value,
+                text=text,
+                row_data=row_data,
+                task_hash=task_hash,
+            )
+        )
+        if limit and len(records) >= limit:
+            break
+    return records, id_col
+
+
+def load_processed_record_keys(
+    history_file: str,
+    config: AppConfig,
+    id_col_name: str,
+) -> set:
+    """Load report-level keys so repeat scans for one patient remain processable."""
+    history_path = Path(history_file)
+    if not history_path.exists():
+        return set()
+
+    try:
+        df = read_table(history_path, config.csv.default_encoding)
+        columns = list(df.columns)
+        id_col = detect_id_column(
+            columns,
+            requested=id_col_name if id_col_name in columns else None,
+            candidates=config.csv.id_column_candidates,
+        )
+        text_columns = detect_text_columns(
+            columns,
+            requested=config.csv.user_text_cols or None,
+            candidates=config.csv.text_column_candidates,
+        )
+    except (OSError, ValueError) as exc:
+        logger.warning(
+            "History file cannot be matched at report level; no rows will be skipped: %s",
+            exc,
+        )
+        return set()
+
+    keys = set()
+    for _, row in df.iterrows():
+        row_data = row.to_dict()
+        report_text = compose_report_text(row_data, text_columns, config.csv.max_chars)
+        id_value = str(row_data.get(id_col, "")).strip()
+        if id_value and report_text:
+            keys.add(build_record_key(id_value, report_text))
+    logger.info("Loaded %s processed report keys from %s", len(keys), history_file)
+    return keys
+
+
 def load_processed_ids(history_file: str, id_col_name: str) -> set:
     """读取历史文件中的 ID 列表"""
     history_path = Path(history_file)
@@ -598,16 +686,23 @@ async def run_batch_processing(
         need_all_records = random_sample or merge_history or (history_file is not None)
         read_limit = None if need_all_records else limit
         
-        records, id_col_name = read_records(input_path, config, limit=read_limit)
+        records, id_col_name = read_records_normalized(input_path, config, limit=read_limit)
         
         # 0. 历史排重 (Incremental Mode)
         if history_file:
-            processed_ids = load_processed_ids(history_file, id_col_name)
-            if processed_ids:
+            processed_keys = load_processed_record_keys(history_file, config, id_col_name)
+            if processed_keys:
                 original_count = len(records)
-                records = [r for r in records if str(r.id_value) not in processed_ids]
+                records = [
+                    record
+                    for record in records
+                    if build_record_key(record.id_value, record.text) not in processed_keys
+                ]
                 filtered_count = len(records)
-                logger.info(f"Filtered out {original_count - filtered_count} already processed IDs.")
+                logger.info(
+                    "Filtered out %s already processed reports.",
+                    original_count - filtered_count,
+                )
         
         # 1. 历史合并 (依赖完整时间线)
         if merge_history:
